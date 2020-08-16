@@ -792,7 +792,7 @@ class KFlash:
                 self._port.write(b'\xc0\xc2\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xc0')
                 op, reason, text = ISPResponse.parse(self.recv_one_return())
 
-                #KFlash.log('MAIX return op:', ISPResponse.ISPOperation(op).name, 'reason:', ISPResponse.ErrorCode(reason).name)
+                KFlash.log('MAIX return op:', ISPResponse.ISPOperation(op).name, 'reason:', ISPResponse.ErrorCode(reason).name)
 
 
             def flash_greeting(self):
@@ -1115,6 +1115,7 @@ class KFlash:
             parser.add_argument("-l", "--bootloader", help="Bootloader bin path", required=False, default=None)
             parser.add_argument("-k", "--key", help="AES key in hex, if you need encrypt your firmware.", required=False, default=None)
             parser.add_argument("-v", "--version", help="Print version.", action='version', version='0.8.3')
+            parser.add_argument("-r", "--reboot", help="Reboot K210 board.", default=False, action='store_true')
             parser.add_argument("--verbose", help="Increase output verbosity", default=False, action="store_true")
             parser.add_argument("-t", "--terminal", help="Start a terminal after finish (Python miniterm)", default=False, action="store_true")
             parser.add_argument("-n", "--noansi", help="Do not use ANSI colors, recommended in Windows CMD", default=False, action="store_true")
@@ -1130,6 +1131,7 @@ class KFlash:
             setattr(args, "baudrate", 115200)
             setattr(args, "bootloader", None)
             setattr(args, "key", None)
+            setattr(args, "reboot", False)
             setattr(args, "verbose", False)
             setattr(args, "terminal", False)
             setattr(args, "noansi", False)
@@ -1199,6 +1201,69 @@ class KFlash:
 
         self.loader = MAIXLoader(port=_port, baudrate=115200)
         file_format = ProgramFileFormat.FMT_BINARY
+
+        if args.reboot:
+            self.checkKillExit()
+            if args.Board == "dan" or args.Board == "bit" or args.Board == "trainer":
+                self.loader.reset_to_boot_dan()
+            elif args.Board == "kd233":
+                self.loader.reset_to_boot_kd233()
+            elif args.Board == "goE":
+                self.loader.reset_to_boot_maixgo()
+            elif args.Board == "goD":
+                self.loader.reset_to_boot_goD()
+            else:
+                KFlash.log(WARN_MSG,"Board unknown , Automatically detecting ...")
+                try:
+                    KFlash.log('*', end='')
+                    self.loader.reset_to_isp_dan()
+                    self.loader.greeting()
+                    args.Board = "dan"
+                    KFlash.log()
+                    KFlash.log(INFO_MSG,"Automatically detected dan/bit/trainer , Rebooting...",BASH_TIPS['DEFAULT'])
+                    self.loader.reset_to_boot_dan()
+                except TimeoutError:
+                    try:
+                        KFlash.log('*', end='')
+                        self.loader.reset_to_isp_kd233()
+                        self.loader.greeting()
+                        args.Board = "kd233"
+                        KFlash.log()
+                        KFlash.log(INFO_MSG,"Automatically detected goE/kd233 , Rebooting...",BASH_TIPS['DEFAULT'])
+                        self.loader.reset_to_boot_kd233()
+                    except TimeoutError:
+                        try:
+                            KFlash.log('*', end='')
+                            self.loader.reset_to_isp_goD()
+                            self.loader.greeting()
+                            args.Board = "goD"
+                            KFlash.log()
+                            KFlash.log(INFO_MSG,"Automatically detected goD , Rebooting...",BASH_TIPS['DEFAULT'])
+                            self.loader.reset_to_boot_goD()
+                        except TimeoutError:
+                            try:
+                                # Magic, just repeat, don't remove, it may unstable, don't know why.
+                                KFlash.log('*', end='')
+                                self.loader.reset_to_isp_kd233()
+                                self.loader.greeting()
+                                args.Board = "kd233"
+                                KFlash.log()
+                                KFlash.log(INFO_MSG,"Automatically detected goE/kd233 , Rebooting...",BASH_TIPS['DEFAULT'])
+                                self.loader.reset_to_boot_kd233()
+                            except TimeoutError:
+                                err = (ERROR_MSG,'Unable to reboot board !', BASH_TIPS['DEFAULT'])
+                                err = tuple2str(err)
+                                raise_exception( Exception(err) )
+
+            try:
+                self.loader._port.close()
+            except Exception:
+                pass
+
+            if(args.terminal == True):
+                open_terminal(True)
+
+            sys.exit(0)
 
         # 0. Check firmware
         try:
